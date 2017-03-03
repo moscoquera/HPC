@@ -2,7 +2,7 @@
 #include "stdio.h"
 #include "string.h"
 #include <mpi.h>
-#include <tgmath.h>
+#include <math.h>
 
 
 //using namespace std;
@@ -14,8 +14,7 @@ void solve(unsigned long long int* res, int* src1, int* src2, int n,int p, int f
 
 void imprimir(char* name, int rows, int cols, int* data){
 
-    printf(name);
-    printf("\n");
+    printf("%s\n",name);
     for(int f=0;f<rows;f++){
       for(int c=0;c<cols;c++){
       printf(" %d",*(data+(f*cols)+c));

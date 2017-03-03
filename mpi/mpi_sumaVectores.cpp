@@ -2,7 +2,7 @@
 #include "stdio.h"
 #include "string.h"
 #include <mpi.h>
-#include <tgmath.h>
+#include <math.h>
 
 
 using namespace std;
