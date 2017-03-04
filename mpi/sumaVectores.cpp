@@ -3,7 +3,7 @@
 #include "string.h"
 
 using namespace std;
-const int max_val=10;
+const int max_val=100;
 
 void generateArray(int* data, int size);
 void solve(int* res, int* src1, int* src2, int size);
@@ -22,7 +22,7 @@ int main(int argc, char* argv[]){
     generateArray(arr1,n);
     generateArray(arr2,n);
     solve(res,arr1,arr2,n);
-    
+    /*
     printf("Array 1:");
     for(int i=0;i<n;i++){
       printf(" %d",*(arr1+i));
@@ -40,7 +40,7 @@ int main(int argc, char* argv[]){
     for(int i=0;i<n;i++){
       printf(" %d",*(res+i));
     }
-    printf("\n");
+    printf("\n");*/
     
     return 0;
 }
