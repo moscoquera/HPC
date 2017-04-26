@@ -303,34 +303,52 @@ int* filter(int* data,int channels, int rows,int cols,float *kernel,int kerneldi
 int main(int argc, char** argv){
 
 
-    Mat image;
-    image = imread(*(argv+1), CV_LOAD_IMAGE_COLOR);
-    Mat m1,m2,m3;
+	if (argc<3){
+		cout<<"./nombre imagen filtro"<<endl;
+		return 0;
+	}
+
+
+	char* nfiltro=*(argv+2);
+	uchar* (*filtro)(uchar*,int,int,int)=0;
+
+	if(strcmp(nfiltro,"sobel")==0) filtro=sobel;
+	if(strcmp(nfiltro,"sobelx")==0) filtro=sobelx;
+	if(strcmp(nfiltro,"sobely")==0) filtro=sobely;
+	if(strcmp(nfiltro,"sobel10")==0) filtro=sobel10;
+	if(strcmp(nfiltro,"sobelx10")==0) filtro=sobelx10;
+	if(strcmp(nfiltro,"sobely10")==0) filtro=sobely10;
+	if(strcmp(nfiltro,"edge1")==0) filtro=edge1;
+	if(strcmp(nfiltro,"edge2")==0) filtro=edge2;
+	if(strcmp(nfiltro,"edge3")==0) filtro=edge3;
+	if(strcmp(nfiltro,"boxblur")==0) filtro=boxblur;
+	if(strcmp(nfiltro,"gaussianblur")==0) filtro=gaussianblur;
+	if(strcmp(nfiltro,"sharpen")==0) filtro=sharpen;
+	if (filtro==0){
+		cout<<"metodo erroneo"<<endl;
+		return 1;
+	}
+
+	Mat image;
+	image = imread(*(argv+1), CV_LOAD_IMAGE_COLOR);
+	Mat m1;
 
     
-    if(! image.data )                              // Check for invalid input
-    {
-        cout <<  "Could not open or find the image" << std::endl ;
-        return -1;
-    }
+	if(! image.data )                              // Check for invalid input
+	{
+		cout <<  "Could not open or find the image" << std::endl ;
+		return -1;
+	}
 
 
 	m1 = Mat (image);
-	m1.data=sobelx(image.data,3,image.rows,image.cols);
-/*	m2 = Mat (image);
-	m2.data=sobely(image.data,3,image.rows,image.cols);
-	m3 = Mat (image);
-	m3.data=sobel(image.data,3,image.rows,image.cols);*/
-    namedWindow( "base", WINDOW_AUTOSIZE );
-    namedWindow( "m1", WINDOW_AUTOSIZE );
-/*    namedWindow( "m2", WINDOW_AUTOSIZE );
-    namedWindow( "m3", WINDOW_AUTOSIZE );*/
-    imshow( "base", image );             
-    imshow( "m1", m1 );                  
-/*    imshow( "m2", m2 );                  
-    imshow( "m3", m3 );*/
+	m1.data=filtro(image.data,3,image.rows,image.cols);
+	namedWindow( "original", WINDOW_AUTOSIZE );
+	imshow( "original", image );             
+	namedWindow( "filter", WINDOW_AUTOSIZE );
+	imshow( "filter", m1 );             
 
-    waitKey();                                          // Wait for a keystroke in the window
+    waitKey();                                        // Wait for a keystroke in the window
   return 0;
 }
 

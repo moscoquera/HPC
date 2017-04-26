@@ -434,7 +434,8 @@ int* _filter(int* data,int channels, int rows,int cols,float *kernel,int kerneld
 	cudaMemset(minmaxs+1,INT_MIN,1);
 	cudaMemset(minmaxs+2,INT_MAX,1);
 	cudaMemset(minmaxs+3,INT_MIN,1);
-	convolution<<<ceil(N/256.0),256,ssize>>>(data,buff,kernel,minmaxs,rows,cols,channels,kerneldim);
+	printf("%f\n",ceil(N/512.0));
+	convolution<<<ceil(N/512.0),512,ssize>>>(data,buff,kernel,minmaxs,rows,cols,channels,kerneldim);
 	cudaError_t err=cudaGetLastError();
 	if ( cudaSuccess !=  err ){
 	    printf( "Error!\n" );
@@ -520,7 +521,7 @@ int main(int argc, char** argv){
 	namedWindow( "filter", WINDOW_AUTOSIZE );
 	imshow( "filter", m1 );             
 
-    waitKey();                                          // Wait for a keystroke in the window
+    waitKey();                                        // Wait for a keystroke in the window
   return 0;
 }
 
