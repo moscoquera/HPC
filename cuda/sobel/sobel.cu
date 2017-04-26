@@ -514,10 +514,11 @@ int main(int argc, char** argv){
 
 
 	m1 = Mat (image);
-	image.data=filtro(image.data,3,image.rows,image.cols);
-	namedWindow( "img", WINDOW_AUTOSIZE );
-	imshow( "img", image );             
-	
+	m1.data=filtro(image.data,3,image.rows,image.cols);
+	namedWindow( "original", WINDOW_AUTOSIZE );
+	imshow( "original", image );             
+	namedWindow( "filter", WINDOW_AUTOSIZE );
+	imshow( "filter", m1 );             
 
     waitKey();                                          // Wait for a keystroke in the window
   return 0;
