@@ -10,7 +10,8 @@ using namespace cv;
 
 
 
-int* filter(int* data,int channels, int rows,int cols,float *kernel,int kerneldim, int kernelNormalize, int outputNormalizationMode);
+int* _filter(int* data,int channels, int rows,int cols,float *kernel,int kerneldim, int kernelNormalize, int outputNormalizationMode);
+uchar * filter(uchar * data,int channels, int rows,int cols,float *kernel,int kerneldim, int kernelNormalize, int outputNormalizationMode);
 __device__ int getGlobalIdx_3D_3D();
 __device__ int getblockthreadIdx();
 
@@ -39,12 +40,7 @@ void convolution(int* data,int* buff,float* kernel,int* outputvars,int rows,int 
 	int kernelmid;
 	extern __shared__ float sharedKernel[];
 	float *kernelCenter;
-	if (idx==0){
-		*(outputvars)=INT_MAX;
-		*(outputvars+1)=INT_MIN;
-		*(outputvars+2)=INT_MAX;
-		*(outputvars+3)=INT_MIN;
-	}
+
 	if (getblockthreadIdx()<kerneldim*kerneldim){
 		*(sharedKernel+getblockthreadIdx())=*(kernel+getblockthreadIdx());
 	}
@@ -68,13 +64,12 @@ void convolution(int* data,int* buff,float* kernel,int* outputvars,int rows,int 
 	int kernelmidHalf=(kerneldim/2);
 	if (col>0 && row>0 && row<rows-1 && col<cols-1){
 		data = data+idx;
-		
-		for(int r = (-1*kernelmidHalf); r<=kernelmidHalf;r++){
-			for(int c = -1*kernelmidHalf; c<=kernelmidHalf;c++){
-				printf("");
+		//r<=(kernelmidHalf) no funciona, no sé porque, pero cuda y yo tenemos un problema.
+		for(int r = (-1*kernelmidHalf); r<(kernelmidHalf+1);r++){
+			for(int c = -1*kernelmidHalf; c<(kernelmidHalf+1);c++){
 				pixel=*(data+(r*cols*channels)+(c*channels));
 				kernelVal=*(kernelCenter+(r*-1*kerneldim)+(c*-1));
-				value+=kernelVal;
+				value+=kernelVal*pixel;
 				if (pixel<pixelmin){
 					pixelmin=pixel;			
 				}
@@ -94,7 +89,7 @@ void convolution(int* data,int* buff,float* kernel,int* outputvars,int rows,int 
 		atomicMax(outputvars+3,pixelmax);
 	
 	}	
-	__syncthreads();
+	//__syncthreads();
 
 	/*if (col>0 && row>0 && row<rows-1 && col<cols-1 && getblockthreadIdx()==0){
 		printf("%d %d %d %d\n",*(outputvars),*(outputvars+1),*(outputvars+2),*(outputvars+3));
@@ -116,7 +111,7 @@ void normalize(int* data,int channels, int rows, int cols,int min, int max, int 
 			*(data+i)=pixval>newMax?newMax:pixval<newMin?newMin:pixval;
 		}
 	}
-	__syncthreads();
+//	__syncthreads();
 
 }
 
@@ -127,9 +122,8 @@ uchar * edge1(uchar* data,int channels, int rows,int cols){
 		{0,0,0},
 		{-1,0,1}
 	};
-	int* bf = uchartoint(data,rows*cols*channels);
-	bf=filter(bf,channels,rows,cols,(float*)kernel,3,0,0);
-	return inttouchar(bf,rows*cols*channels);
+
+	return filter(data,channels,rows,cols,(float*)kernel,3,0,0);
 }
 
 
@@ -139,10 +133,9 @@ uchar * edge2(uchar* data,int channels, int rows,int cols){
 		{1,-4,1},
 		{0,1,0}
 	};
+	
+ 	return filter(data,channels,rows,cols,(float*)kernel,3,0,0);
 
-	int* bf = uchartoint(data,rows*cols*channels);
-	bf=filter(bf,channels,rows,cols,(float*)kernel,3,0,0);
-	return inttouchar(bf,rows*cols*channels);
 }
 
 
@@ -153,9 +146,7 @@ uchar * edge3(uchar* data,int channels, int rows,int cols){
 		{-1,-1,-1},
 	};
 	
-	int* bf = uchartoint(data,rows*cols*channels);
-	bf=filter(bf,channels,rows,cols,(float*)kernel,3,0,0);
-	return inttouchar(bf,rows*cols*channels);
+	return filter(data,channels,rows,cols,(float*)kernel,3,0,0);
 }
 
 uchar * sharpen(uchar* data,int channels, int rows,int cols){
@@ -165,9 +156,8 @@ uchar * sharpen(uchar* data,int channels, int rows,int cols){
 		{0,-1,0},
 	};
 
-	int* bf = uchartoint(data,rows*cols*channels);
-	bf=filter(bf,channels,rows,cols,(float*)kernel,3,0,0);
-	return inttouchar(bf,rows*cols*channels);
+	return filter(data,channels,rows,cols,(float*)kernel,3,0,0);
+
 }
 
 uchar * boxblur(uchar* data,int channels, int rows,int cols){
@@ -177,9 +167,8 @@ uchar * boxblur(uchar* data,int channels, int rows,int cols){
 		{1,1,1},
 	};
 
-	int* bf = uchartoint(data,rows*cols*channels);
-	bf=filter(bf,channels,rows,cols,(float*)kernel,3,1,0);
-	return inttouchar(bf,rows*cols*channels);
+	return filter(data,channels,rows,cols,(float*)kernel,3,1,0);
+	
 }
 
 uchar * gaussianblur(uchar* data,int channels, int rows,int cols){
@@ -189,9 +178,8 @@ uchar * gaussianblur(uchar* data,int channels, int rows,int cols){
 		{1,2,1},
 	};
 
-	int* bf = uchartoint(data,rows*cols*channels);
-	bf=filter(bf,channels,rows,cols,(float*)kernel,3,1,0);
-	return inttouchar(bf,rows*cols*channels);
+	return filter(data,channels,rows,cols,(float*)kernel,3,1,0);
+
 }
 
 int * _sobelx(int* data,int channels, int rows,int cols, int mode){
@@ -203,7 +191,9 @@ int * _sobelx(int* data,int channels, int rows,int cols, int mode){
 	float * d_kernel;
 	cudaMalloc(&d_kernel,sizeof(float)*3*3);
 	cudaMemcpy(d_kernel,(float*)kernel,sizeof(float)*3*3,cudaMemcpyHostToDevice);
-	return filter(data,channels,rows,cols,d_kernel,3,0,mode);
+	int* res = _filter(data,channels,rows,cols,d_kernel,3,0,mode);
+	cudaFree(d_kernel);
+	return res;
 	
 	
 	
@@ -216,7 +206,11 @@ uchar * sobelx(uchar* data,int channels, int rows,int cols){
 	int* d_output = _sobelx(d_data,channels,rows,cols,0);
 	int* output = (int*)malloc(sizeof(int)*rows*cols*channels);
 	cudaMemcpy(output,d_output,sizeof(int)*rows*cols*channels, cudaMemcpyDeviceToHost);
-	return inttouchar(output,rows*cols*channels);
+	uchar* out = inttouchar(output,rows*cols*channels);
+	cudaFree(d_data);
+	cudaFree(d_output);
+	free(output);
+	return out;
 }
 
 int * _sobely(int* data,int channels, int rows,int cols, int mode){
@@ -228,27 +222,64 @@ int * _sobely(int* data,int channels, int rows,int cols, int mode){
 	float * d_kernel;
 	cudaMalloc(&d_kernel,sizeof(float)*3*3);
 	cudaMemcpy(d_kernel,(float*)kernel,sizeof(float)*3*3,cudaMemcpyHostToDevice);
-	return filter(data,channels,rows,cols,d_kernel,3,0,mode);
+	int* res = _filter(data,channels,rows,cols,d_kernel,3,0,mode);
+	cudaFree(d_kernel);
+	return res;
 	
 }
+
+int * _sobelx10(int* data,int channels, int rows,int cols, int mode){
+	float kernel[3][3]={
+		{3,0,-3},
+		{10,0,-10},
+		{3,0,-3},
+	};
+
+	float * d_kernel;
+	cudaMalloc(&d_kernel,sizeof(float)*3*3);
+	cudaMemcpy(d_kernel,(float*)kernel,sizeof(float)*3*3,cudaMemcpyHostToDevice);
+	int* res = _filter(data,channels,rows,cols,d_kernel,3,0,mode);
+	cudaFree(d_kernel);
+	return res;
+	
+}
+
+int * _sobely10(int* data,int channels, int rows,int cols, int mode){
+	float kernel[3][3]={
+		{3,10,3},
+		{0,0,0},
+		{-3,-10,-3},
+	};
+
+	float * d_kernel;
+	cudaMalloc(&d_kernel,sizeof(float)*3*3);
+	cudaMemcpy(d_kernel,(float*)kernel,sizeof(float)*3*3,cudaMemcpyHostToDevice);
+	int* res = _filter(data,channels,rows,cols,d_kernel,3,0,mode);
+	cudaFree(d_kernel);
+	return res;
+	
+}
+
 
 uchar * sobely(uchar* data,int channels, int rows,int cols){
 	int* datai = uchartoint(data,channels*rows*cols);
 	int * d_data;
 	cudaMalloc(&d_data,sizeof(int)*channels*rows*cols);
 	cudaMemcpy(d_data,datai,sizeof(int)*channels*rows*cols,cudaMemcpyHostToDevice);
-	return inttouchar(_sobely(d_data,channels,rows,cols,0),rows*cols*channels);
+	int* d_output = _sobely(d_data,channels,rows,cols,0);
+	int* output = (int*)malloc(sizeof(int)*rows*cols*channels);
+	cudaMemcpy(output,d_output,sizeof(int)*rows*cols*channels, cudaMemcpyDeviceToHost);
+	uchar* out = inttouchar(output,rows*cols*channels);
+	cudaFree(d_data);
+	cudaFree(d_output);
+	free(output);
+	return out;
 }
 
 __global__
 void sobelKernel(int *a, int*b,int* output,int* outputvars,int n){
 	int i = getGlobalIdx_3D_3D();
 	
-	if (i==0){
-		*(outputvars)=INT_MAX;
-		*(outputvars+1)=INT_MIN;
-	}
-
 	if (i>=n){return;}
 	int val=sqrtf((*(a+i))*(*(a+i))+(*(b+i))*(*(b+i)));
 	*(output+i)=val;
@@ -273,65 +304,100 @@ uchar * sobel(uchar* data,int channels, int rows,int cols){
 
 	int * filterx =  _sobelx(d_data,channels,rows,cols,-1);
 	int * filtery =  _sobely(d_data,channels,rows,cols,-1);
+	cudaMemset(minmaxs,INT_MAX,1);
+	cudaMemset(minmaxs+1,INT_MIN,1);
 	sobelKernel<<<ceil((rows*cols*channels)/256.0),256>>>(filterx,filtery,d_output,minmaxs,rows*cols*channels);
 	int* tmpMinMax = (int*)malloc(sizeof(int)*2);	
 	cudaMemcpy(tmpMinMax,minmaxs,sizeof(int)*2, cudaMemcpyDeviceToHost);
 
 	normalize<<<ceil((rows*cols*channels)/256.0),256>>>(d_output,channels,rows,cols,*(tmpMinMax),*(tmpMinMax+1),0,255,1);	
 	cudaMemcpy(output,d_output,sizeof(int)*rows*cols*channels, cudaMemcpyDeviceToHost);
-	return inttouchar(output,rows*cols*channels);
-	//return data;
+	//printf("%d %d %d %d\n",*(tmpMinMax),*(tmpMinMax+1),0,255);
+	uchar* out = inttouchar(output,rows*cols*channels);
+	cudaFree(minmaxs);
+	cudaFree(d_data);
+	cudaFree(d_output);
+	free(datai);
+	free(output);
+	cudaFree(filterx);
+	cudaFree(filtery);
+	free(tmpMinMax);
+	return out;
+
 
 }
 
-
-int * _sobelx10(uchar* data,int channels, int rows,int cols, int mode){
-	float kernel[3][3]={
-		{3,0,-3},
-		{10,0,-10},
-		{3,0,-3},
-	};
-
-	int* bf = uchartoint(data,rows*cols*channels);
-	return filter(bf,channels,rows,cols,(float*)kernel,3,0,mode);
-}
-
-int * _sobely10(uchar* data,int channels, int rows,int cols, int mode){
-	float kernel[3][3]={
-		{3,10,3},
-		{0,0,0},
-		{-3,-10,-3},
-	};
-
-	int* bf = uchartoint(data,rows*cols*channels);
-	return filter(bf,channels,rows,cols,(float*)kernel,3,0,mode);
-}
 
 uchar * sobel10(uchar* data,int channels, int rows,int cols){
-	  int * filterx =  _sobelx10(data,channels,rows,cols,-1);
-	 int * filtery =  _sobely10(data,channels,rows,cols,-1);
-	 int * output = (int*)malloc(sizeof(int)*rows*cols*channels);
-	int val;
-	int min=INT_MAX;
-	int max=INT_MIN;
-	for(int i=0;i<rows*cols*channels;i++){
-		val=sqrt((*(filterx+i))*(*(filterx+i))+(*(filtery+i))*(*(filtery+i)));
-		*(output+i)=val;
-		if (val<min) min=val;
-		if (val>max) max=val;
-	}
-	normalize<<<ceil((rows*cols*channels)/256.0),256>>>(output,channels,rows,cols,min,max,0,255,1);	
-	return inttouchar(output,rows*cols*channels);
+	int* datai = uchartoint(data,channels*rows*cols);
+	int * d_data,*minmaxs;
+	int * d_output,*output;
+
+	cudaMalloc(&minmaxs,sizeof(int)*2);
+
+	cudaMalloc(&d_data,sizeof(int)*channels*rows*cols);
+	cudaMemcpy(d_data,datai,sizeof(int)*channels*rows*cols,cudaMemcpyHostToDevice);
+
+
+	cudaMalloc(&d_output,sizeof(int)*rows*cols*channels);
+	output = (int*)malloc(sizeof(int)*rows*cols*channels);
+	
+
+	int * filterx =  _sobelx10(d_data,channels,rows,cols,-1);
+	int * filtery =  _sobely10(d_data,channels,rows,cols,-1);
+	cudaMemset(minmaxs,INT_MAX,1);
+	cudaMemset(minmaxs+1,INT_MIN,1);
+	sobelKernel<<<ceil((rows*cols*channels)/256.0),256>>>(filterx,filtery,d_output,minmaxs,rows*cols*channels);
+	int* tmpMinMax = (int*)malloc(sizeof(int)*2);	
+	cudaMemcpy(tmpMinMax,minmaxs,sizeof(int)*2, cudaMemcpyDeviceToHost);
+
+	normalize<<<ceil((rows*cols*channels)/256.0),256>>>(d_output,channels,rows,cols,*(tmpMinMax),*(tmpMinMax+1),0,255,1);	
+	cudaMemcpy(output,d_output,sizeof(int)*rows*cols*channels, cudaMemcpyDeviceToHost);
+	//printf("%d %d %d %d\n",*(tmpMinMax),*(tmpMinMax+1),0,255);
+	uchar* out = inttouchar(output,rows*cols*channels);
+	cudaFree(minmaxs);
+	cudaFree(d_data);
+	cudaFree(d_output);
+	free(datai);
+	free(output);
+	cudaFree(filterx);
+	cudaFree(filtery);
+	free(tmpMinMax);
+	return out;
 	 
 }
 
 uchar * sobely10(uchar* data,int channels, int rows,int cols){
-	return inttouchar(_sobely10(data,channels,rows,cols,0),rows*cols*channels);
+	int* datai = uchartoint(data,channels*rows*cols);
+	int * d_data;
+	cudaMalloc(&d_data,sizeof(int)*channels*rows*cols);
+	cudaMemcpy(d_data,datai,sizeof(int)*channels*rows*cols,cudaMemcpyHostToDevice);
+	int* d_output = _sobely10(d_data,channels,rows,cols,0);
+	int* output = (int*)malloc(sizeof(int)*rows*cols*channels);
+	cudaMemcpy(output,d_output,sizeof(int)*rows*cols*channels, cudaMemcpyDeviceToHost);
+	uchar* out = inttouchar(output,rows*cols*channels);
+	cudaFree(d_data);
+	cudaFree(d_output);
+	free(output);
+	return out;
 }
 
 uchar * sobelx10(uchar* data,int channels, int rows,int cols){
-	return inttouchar(_sobelx10(data,channels,rows,cols,0),rows*cols*channels);
+	int* datai = uchartoint(data,channels*rows*cols);
+	int * d_data;
+	cudaMalloc(&d_data,sizeof(int)*channels*rows*cols);
+	cudaMemcpy(d_data,datai,sizeof(int)*channels*rows*cols,cudaMemcpyHostToDevice);
+	int* d_output = _sobelx10(d_data,channels,rows,cols,0);
+	int* output = (int*)malloc(sizeof(int)*rows*cols*channels);
+	cudaMemcpy(output,d_output,sizeof(int)*rows*cols*channels, cudaMemcpyDeviceToHost);
+	uchar* out = inttouchar(output,rows*cols*channels);
+	cudaFree(d_data);
+	cudaFree(d_output);
+	free(output);
+	return out;
+	
 }
+
 
 __global__
 void kernelNormAdd(float* kernel,float* output, int kernelNormalize){
@@ -350,7 +416,7 @@ void kernelNormAdd(float* kernel,float* output, int kernelNormalize){
 }
 
 
-int* filter(int* data,int channels, int rows,int cols,float *kernel,int kerneldim, int kernelNormalize, int outputNormalizationMode){
+int* _filter(int* data,int channels, int rows,int cols,float *kernel,int kerneldim, int kernelNormalize, int outputNormalizationMode){
 	int* buff,*minmaxs;
 	cudaMalloc(&buff,sizeof(int)*channels*rows*cols);
 	cudaMalloc(&minmaxs,sizeof(int)*4);
@@ -360,12 +426,15 @@ int* filter(int* data,int channels, int rows,int cols,float *kernel,int kerneldi
 		cudaMalloc(&sumKernel,sizeof(float)*2);
 		cudaMemset(sumKernel,0,sizeof(float)*2);
 		kernelNormAdd<<<1,9>>>(kernel,sumKernel,kernelNormalize);
-		
+		cudaFree(sumKernel);
 	}
 	int N = rows*cols*channels;
 	int ssize = (sizeof(float)*kerneldim*kerneldim);
+	cudaMemset(minmaxs,INT_MAX,1);
+	cudaMemset(minmaxs+1,INT_MIN,1);
+	cudaMemset(minmaxs+2,INT_MAX,1);
+	cudaMemset(minmaxs+3,INT_MIN,1);
 	convolution<<<ceil(N/256.0),256,ssize>>>(data,buff,kernel,minmaxs,rows,cols,channels,kerneldim);
-	cudaDeviceSynchronize();
 	cudaError_t err=cudaGetLastError();
 	if ( cudaSuccess !=  err ){
 	    printf( "Error!\n" );
@@ -374,44 +443,81 @@ int* filter(int* data,int channels, int rows,int cols,float *kernel,int kerneldi
 	if (outputNormalizationMode>=0){
 		  int* tmpMinMax = (int*)malloc(sizeof(int)*4);	
 		  cudaMemcpy(tmpMinMax,minmaxs,sizeof(int)*4, cudaMemcpyDeviceToHost);
-		  printf("%d %d %d %d\n",*(tmpMinMax),*(tmpMinMax+1),*(tmpMinMax+2),*(tmpMinMax+3));
+		  //printf("%d %d %d %d\n",*(tmpMinMax),*(tmpMinMax+1),*(tmpMinMax+2),*(tmpMinMax+3));
 		  normalize<<<ceil(N/256),256>>>(buff,channels,rows,cols,*(tmpMinMax),*(tmpMinMax+1),*(tmpMinMax+2),*(tmpMinMax+3),outputNormalizationMode);
+		free(tmpMinMax);
 	}
+	cudaFree(minmaxs);
 	return buff;
 }
 
+uchar* filter(uchar* data,int channels, int rows,int cols,float *kernel,int kerneldim, int kernelNormalize, int outputNormalizationMode){
+	int* datai = uchartoint(data,channels*rows*cols);
+	int * d_data;
+	cudaMalloc(&d_data,sizeof(int)*channels*rows*cols);
+	cudaMemcpy(d_data,datai,sizeof(int)*channels*rows*cols,cudaMemcpyHostToDevice);
+	float * d_kernel;
+	cudaMalloc(&d_kernel,sizeof(float)*3*3);
+	cudaMemcpy(d_kernel,kernel,sizeof(float)*3*3,cudaMemcpyHostToDevice);
+	int* d_output = _filter(d_data,channels,rows,cols,d_kernel,kerneldim,kernelNormalize,outputNormalizationMode);
+	int* output = (int*)malloc(sizeof(int)*rows*cols*channels);
+	cudaMemcpy(output,d_output,sizeof(int)*rows*cols*channels, cudaMemcpyDeviceToHost);
+	uchar* out = inttouchar(output,rows*cols*channels);
 
+	cudaFree(d_data);
+	cudaFree(d_output);
+	free(datai);
+	free(output);
+	return out;
+}
 
 
 int main(int argc, char** argv){
 
 
-    Mat image;
-    image = imread(*(argv+1), CV_LOAD_IMAGE_COLOR);
-    Mat m1,m2,m3;
+	if (argc<3){
+		cout<<"./nombre imagen filtro"<<endl;
+		return 0;
+	}
+
+
+	char* nfiltro=*(argv+2);
+	uchar* (*filtro)(uchar*,int,int,int)=0;
+
+	if(strcmp(nfiltro,"sobel")==0) filtro=sobel;
+	if(strcmp(nfiltro,"sobelx")==0) filtro=sobelx;
+	if(strcmp(nfiltro,"sobely")==0) filtro=sobely;
+	if(strcmp(nfiltro,"sobel10")==0) filtro=sobel10;
+	if(strcmp(nfiltro,"sobelx10")==0) filtro=sobelx10;
+	if(strcmp(nfiltro,"sobely10")==0) filtro=sobely10;
+	if(strcmp(nfiltro,"edge1")==0) filtro=edge1;
+	if(strcmp(nfiltro,"edge2")==0) filtro=edge2;
+	if(strcmp(nfiltro,"edge3")==0) filtro=edge3;
+	if(strcmp(nfiltro,"boxblur")==0) filtro=boxblur;
+	if(strcmp(nfiltro,"gaussianblur")==0) filtro=gaussianblur;
+	if(strcmp(nfiltro,"sharpen")==0) filtro=sharpen;
+	if (filtro==0){
+		cout<<"metodo erroneo"<<endl;
+		return 1;
+	}
+
+	Mat image;
+	image = imread(*(argv+1), CV_LOAD_IMAGE_COLOR);
+	Mat m1;
 
     
-    if(! image.data )                              // Check for invalid input
-    {
-        cout <<  "Could not open or find the image" << std::endl ;
-        return -1;
-    }
+	if(! image.data )                              // Check for invalid input
+	{
+		cout <<  "Could not open or find the image" << std::endl ;
+		return -1;
+	}
 
 
-/*	m1 = Mat (image);
-	m1.data=sobelx(image.data,3,image.rows,image.cols);
-	m2 = Mat (image);
-	m2.data=sobely(image.data,3,image.rows,image.cols);*/
-	m3 = Mat (image);
-	m3.data=sobelx(image.data,3,image.rows,image.cols);
-    namedWindow( "base", WINDOW_AUTOSIZE );
-/*    namedWindow( "m1", WINDOW_AUTOSIZE );
-    namedWindow( "m2", WINDOW_AUTOSIZE );*/
-    namedWindow( "m3", WINDOW_AUTOSIZE );
-    imshow( "base", image );             
-  /*  imshow( "m1", m1 );                  
-    imshow( "m2", m2 );                  */
-    imshow( "m3", m3 );
+	m1 = Mat (image);
+	image.data=filtro(image.data,3,image.rows,image.cols);
+	namedWindow( "img", WINDOW_AUTOSIZE );
+	imshow( "img", image );             
+	
 
     waitKey();                                          // Wait for a keystroke in the window
   return 0;
