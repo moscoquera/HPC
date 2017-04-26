@@ -8,11 +8,12 @@
 using namespace std;
 using namespace cv;
 
-
+#define maxthreads 256.0
+#define maxblocks 256.0
 
 int* _filter(int* data,int channels, int rows,int cols,float *kernel,int kerneldim, int kernelNormalize, int outputNormalizationMode);
 uchar * filter(uchar * data,int channels, int rows,int cols,float *kernel,int kerneldim, int kernelNormalize, int outputNormalizationMode);
-__device__ int getGlobalIdx_3D_3D();
+__device__ int getGlobalIdx_3D_3D(int);
 __device__ int getblockthreadIdx();
 
 
@@ -35,8 +36,8 @@ uchar* inttouchar(int* data, int size){
 
 
 __global__
-void convolution(int* data,int* buff,float* kernel,int* outputvars,int rows,int cols,int channels,int kerneldim){
-	int idx = getGlobalIdx_3D_3D();
+void convolution(int* data,int* buff,float* kernel,int* outputvars,int rows,int cols,int channels,int kerneldim,int baseblock){
+	int idx = getGlobalIdx_3D_3D(baseblock);
 	int kernelmid;
 	extern __shared__ float sharedKernel[];
 	float *kernelCenter;
@@ -98,9 +99,9 @@ void convolution(int* data,int* buff,float* kernel,int* outputvars,int rows,int 
 }
 
 __global__
-void normalize(int* data,int channels, int rows, int cols,int min, int max, int newMin, int newMax, int mode){
+void normalize(int* data,int channels, int rows, int cols,int min, int max, int newMin, int newMax, int mode,int subset){
 	int pixval=0;
-	int i = getGlobalIdx_3D_3D();
+	int i = getGlobalIdx_3D_3D(subset);
 	int row = i / (cols*channels);
 	int col = (i%(cols*channels))/channels;
 	if (row>0 && col>0 && row<rows-1 && col<cols-1){
@@ -277,8 +278,8 @@ uchar * sobely(uchar* data,int channels, int rows,int cols){
 }
 
 __global__
-void sobelKernel(int *a, int*b,int* output,int* outputvars,int n){
-	int i = getGlobalIdx_3D_3D();
+void sobelKernel(int *a, int*b,int* output,int* outputvars,int n, int base){
+	int i = getGlobalIdx_3D_3D(base);
 	
 	if (i>=n){return;}
 	int val=sqrtf((*(a+i))*(*(a+i))+(*(b+i))*(*(b+i)));
@@ -306,11 +307,16 @@ uchar * sobel(uchar* data,int channels, int rows,int cols){
 	int * filtery =  _sobely(d_data,channels,rows,cols,-1);
 	cudaMemset(minmaxs,INT_MAX,1);
 	cudaMemset(minmaxs+1,INT_MIN,1);
-	sobelKernel<<<ceil((rows*cols*channels)/256.0),256>>>(filterx,filtery,d_output,minmaxs,rows*cols*channels);
+	int N = rows*cols*channels;
+	int bloques = ceil(N/maxthreads);
+	for(int sub=0;sub<ceil(bloques/maxblocks);sub++){
+		sobelKernel<<<maxblocks,maxthreads>>>(filterx,filtery,d_output,minmaxs,N,sub*maxblocks);
+	}
 	int* tmpMinMax = (int*)malloc(sizeof(int)*2);	
 	cudaMemcpy(tmpMinMax,minmaxs,sizeof(int)*2, cudaMemcpyDeviceToHost);
-
-	normalize<<<ceil((rows*cols*channels)/256.0),256>>>(d_output,channels,rows,cols,*(tmpMinMax),*(tmpMinMax+1),0,255,1);	
+	for(int sub=0;sub<ceil(bloques/maxblocks);sub++){
+		normalize<<<maxblocks,maxthreads>>>(d_output,channels,rows,cols,*(tmpMinMax),*(tmpMinMax+1),0,255,1,sub*maxblocks);	
+	}
 	cudaMemcpy(output,d_output,sizeof(int)*rows*cols*channels, cudaMemcpyDeviceToHost);
 	//printf("%d %d %d %d\n",*(tmpMinMax),*(tmpMinMax+1),0,255);
 	uchar* out = inttouchar(output,rows*cols*channels);
@@ -321,7 +327,7 @@ uchar * sobel(uchar* data,int channels, int rows,int cols){
 	free(output);
 	cudaFree(filterx);
 	cudaFree(filtery);
-	free(tmpMinMax);
+	//free(tmpMinMax);
 	return out;
 
 
@@ -347,11 +353,16 @@ uchar * sobel10(uchar* data,int channels, int rows,int cols){
 	int * filtery =  _sobely10(d_data,channels,rows,cols,-1);
 	cudaMemset(minmaxs,INT_MAX,1);
 	cudaMemset(minmaxs+1,INT_MIN,1);
-	sobelKernel<<<ceil((rows*cols*channels)/256.0),256>>>(filterx,filtery,d_output,minmaxs,rows*cols*channels);
+	int N = rows*cols*channels;
+	int bloques = ceil(N/maxthreads);
+	for(int sub=0;sub<ceil(bloques/maxblocks);sub++){
+		sobelKernel<<<maxblocks,maxthreads>>>(filterx,filtery,d_output,minmaxs,rows*cols*channels,sub*maxblocks);
+	}
 	int* tmpMinMax = (int*)malloc(sizeof(int)*2);	
 	cudaMemcpy(tmpMinMax,minmaxs,sizeof(int)*2, cudaMemcpyDeviceToHost);
-
-	normalize<<<ceil((rows*cols*channels)/256.0),256>>>(d_output,channels,rows,cols,*(tmpMinMax),*(tmpMinMax+1),0,255,1);	
+	for(int sub=0;sub<ceil(bloques/maxblocks);sub++){
+		normalize<<<maxblocks,maxthreads>>>(d_output,channels,rows,cols,*(tmpMinMax),*(tmpMinMax+1),0,255,1,sub*maxblocks);	
+	}
 	cudaMemcpy(output,d_output,sizeof(int)*rows*cols*channels, cudaMemcpyDeviceToHost);
 	//printf("%d %d %d %d\n",*(tmpMinMax),*(tmpMinMax+1),0,255);
 	uchar* out = inttouchar(output,rows*cols*channels);
@@ -434,18 +445,23 @@ int* _filter(int* data,int channels, int rows,int cols,float *kernel,int kerneld
 	cudaMemset(minmaxs+1,INT_MIN,1);
 	cudaMemset(minmaxs+2,INT_MAX,1);
 	cudaMemset(minmaxs+3,INT_MIN,1);
-	printf("%f\n",ceil(N/512.0));
-	convolution<<<ceil(N/512.0),512,ssize>>>(data,buff,kernel,minmaxs,rows,cols,channels,kerneldim);
-	cudaError_t err=cudaGetLastError();
-	if ( cudaSuccess !=  err ){
-	    printf( "Error!\n" );
-            printf("GPUassert: %s\n", cudaGetErrorString(err));
+	int bloques = ceil(N/maxthreads);
+	for(int sub=0;sub<ceil(bloques/maxblocks);sub++){
+		convolution<<<maxblocks,maxthreads,ssize>>>(data,buff,kernel,minmaxs,rows,cols,channels,kerneldim,sub*maxblocks);
+		cudaError_t err=cudaGetLastError();
+		if ( cudaSuccess !=  err ){
+		    printf( "Error!\n" );
+		    printf("GPUassert: %s\n", cudaGetErrorString(err));
+		}
+
 	}
 	if (outputNormalizationMode>=0){
 		  int* tmpMinMax = (int*)malloc(sizeof(int)*4);	
 		  cudaMemcpy(tmpMinMax,minmaxs,sizeof(int)*4, cudaMemcpyDeviceToHost);
 		  //printf("%d %d %d %d\n",*(tmpMinMax),*(tmpMinMax+1),*(tmpMinMax+2),*(tmpMinMax+3));
-		  normalize<<<ceil(N/256),256>>>(buff,channels,rows,cols,*(tmpMinMax),*(tmpMinMax+1),*(tmpMinMax+2),*(tmpMinMax+3),outputNormalizationMode);
+		for(int sub=0;sub<ceil(bloques/maxblocks);sub++){
+				  normalize<<<maxblocks,maxthreads>>>(buff,channels,rows,cols,*(tmpMinMax),*(tmpMinMax+1),*(tmpMinMax+2),*(tmpMinMax+3),outputNormalizationMode,sub*maxblocks);
+		}
 		free(tmpMinMax);
 	}
 	cudaFree(minmaxs);
@@ -521,16 +537,19 @@ int main(int argc, char** argv){
 	namedWindow( "filter", WINDOW_AUTOSIZE );
 	imshow( "filter", m1 );             
 
-    waitKey();                                        // Wait for a keystroke in the window
+    waitKey();                                          // Wait for a keystroke in the window
   return 0;
 }
 
 
-__device__ int getGlobalIdx_3D_3D()
+
+
+__device__ int getGlobalIdx_3D_3D(int base)
 {
 	int blockId = blockIdx.x 
 			 + blockIdx.y * gridDim.x 
 			 + gridDim.x * gridDim.y * blockIdx.z; 
+	blockId+=base;
 	int threadId = blockId * (blockDim.x * blockDim.y * blockDim.z)
 			  + (threadIdx.z * (blockDim.x * blockDim.y))
 			  + (threadIdx.y * blockDim.x)
@@ -544,6 +563,7 @@ __device__ int getblockthreadIdx(){
 			  + (threadIdx.y * blockDim.x)
 			  + threadIdx.x;
 }
+
 
 
 
